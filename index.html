@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruedas 3D con Anillo de Energía</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #F5F5DC; }
+        canvas { display: block; }
+        .info {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        .controls button {
+            background: linear-gradient(145deg, #e0e0e0, #f0f0f0);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 5px 5px 10px #bebebe, -5px -5px 10px #ffffff;
+            color: #333;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .controls button:hover {
+            transform: translateY(-3px);
+            box-shadow: 7px 7px 15px #bebebe, -7px -7px 15px #ffffff;
+        }
+        .controls button:disabled {
+            background-color: #e0e0e0;
+            border-color: #999999;
+            color: #999999;
+            cursor: not-allowed;
+            box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff;
+            transform: translateY(0);
+        }
+        #menuItems {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 12px;
+            background-color: rgba(240, 240, 240, 0.9);
+            box-shadow: 5px 5px 10px rgba(0,0,0,0.2), -5px -5px 10px rgba(255,255,255,0.8);
+            backdrop-filter: blur(5px);
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        .modal-content {
+            background: linear-gradient(145deg, #f0f0f0, #e0e0e0);
+            padding: 40px;
+            border-radius: 20px;
+            width: 80%;
+            max-width: 500px;
+            text-align: center;
+            position: relative;
+            box-shadow: 10px 10px 20px rgba(0,0,0,0.3), -10px -10px 20px rgba(255,255,255,0.7);
+        }
+        .modal-content h2 {
+            font-size: 2em;
+            color: #333;
+            margin-top: 0;
+            border-bottom: 2px solid #ccc;
+            padding-bottom: 10px;
+        }
+        .modal-content p {
+            color: #555;
+            font-size: 1.2em;
+            line-height: 1.5;
+        }
+        .close-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: #999;
+            font-size: 36px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+        .close-button:hover {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">
+        Usa el mouse para mover la cámara y ver la animación desde todos los ángulos.
+    </div>
+    <div class="controls">
+        <button id="showMenuButton">Menú</button>
+        <div id="menuItems">
+            <button id="toggleMetal">Transformar a Metal</button>
+            <button id="toggleRotation">Detener Giroscopios</button>
+            <button id="toggleElectrify">electrificar</button>
+            <button id="showInstructions">Instrucciones</button>
+        </div>
+    </div>
+
+    <div id="instructionsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Instrucciones</h2>
+            <p>Intenta hacer levitar esta esfera.</p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let wheels = [];
+        let reflectionWheels = [];
+        let containerGroup, floor;
+        let spark, sparkParticles = []; 
+        let wheelRings = []; 
+        let crossRings = [];
+        let rays = [];
+        let glassSphere;
+        let electrifiedLine; // Línea electrificada
+        const NUM_SPARK_PARTICLES = 50; 
+        const WHEEL_ENERGY_NUM = 80;
+        let topSphere; 
+        let bottomSphere;
+        let isMetallic = false;
+        let isRotating = true;
+        let isElectrified = false;
+        let alienSignal; // Señal alienígena
+        let alienSignalActive = false;
+        let teslaCoils = []; // Array para las bobinas de Tesla
+        let cityGroup; // Grupo para la ciudad futurista
+        let miniaturePeople = []; // Array para las personas en miniatura
+
+        let currentRotationSpeed = 0.0;
+        let animationStartTime = 0;
+        
+        let isGravitationalWaveActive = false; 
+        let waveStartTime = 0;
+        
+        let lastCrossRingSpawnTime = 0;
+        const CROSS_RING_SPAWN_INTERVAL = 500;
+        
+        let isLevitating = false;
+        let isDescending = false;
+        const LEVITATION_HEIGHT = 8;
+        const LEVITATION_SPEED_ASCEND = 0.01; // Velocidad de levitación más lenta
+        const LEVITATION_SPEED_DESCEND = 0.02; // Velocidad de descenso más rápida
+        const INITIAL_HEIGHT = -3.5;
+        let isBobbing = false;
+        let isElectrifiedState = false;
+
+        let domeGroup; // Nuevo grupo para el domo
+        let dome; // Referencia al domo
+
+        window.onload = function() {
+            init();
+            animate();
+            setupControls();
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xC0E0FF);
+            
+            // --- NUEVO: Crea el grupo del domo que contendrá toda la escena ---
+            domeGroup = new THREE.Group();
+            scene.add(domeGroup);
+            createGlassDome();
+            // --- FIN DEL NUEVO CÓDIGO ---
+
+            containerGroup = new THREE.Group();
+            domeGroup.add(containerGroup);
+            containerGroup.position.y = 0; 
+            containerGroup.rotation.x = -Math.PI / 2;
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 10;
+            camera.position.y = 2;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+            controls.rotateSpeed = 0.5;
+
+            // Restringe el zoom hacia el suelo
+            controls.minPolarAngle = Math.PI / 4;
+            controls.maxPolarAngle = Math.PI / 2;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
+            domeGroup.add(ambientLight); // Añadido al grupo del domo
+            
+            const centralLight = new THREE.PointLight(0x00ffff, 10, 10, 2);
+            centralLight.position.set(0, 0, 0);
+            centralLight.castShadow = true;
+            centralLight.shadow.mapSize.width = 1024;
+            centralLight.shadow.mapSize.height = 1024;
+            domeGroup.add(centralLight); // Añadido al grupo del domo
+
+            createWheels();
+            createCenterEffects();
+            createRays();
+            createGlassSphere();
+            createFloor();
+            createElectrifiedLine();
+            createChairs();
+            createTeslaCoils();
+            createFuturisticCity();
+            createMiniaturePeople();
+            
+            glassSphere.add(containerGroup);
+            domeGroup.add(glassSphere); // Añadido al grupo del domo
+            domeGroup.add(floor); // Añadido al grupo del domo
+
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function setupControls() {
+            const showMenuButton = document.getElementById('showMenuButton');
+            const menuItems = document.getElementById('menuItems');
+            let isMenuVisible = false;
+
+            showMenuButton.addEventListener('click', () => {
+                isMenuVisible = !isMenuVisible;
+                if (isMenuVisible) {
+                    menuItems.style.display = 'flex';
+                    showMenuButton.textContent = 'Ocultar menú';
+                } else {
+                    menuItems.style.display = 'none';
+                    showMenuButton.textContent = 'Menú';
+                }
+            });
+
+            const toggleMetalButton = document.getElementById('toggleMetal');
+            toggleMetalButton.addEventListener('click', toggleMetalState);
+
+            const toggleRotationButton = document.getElementById('toggleRotation');
+            toggleRotationButton.addEventListener('click', toggleRotationState);
+            
+            const toggleElectrifyButton = document.getElementById('toggleElectrify');
+            toggleElectrifyButton.addEventListener('click', toggleElectrifyState);
+
+            const instructionsButton = document.getElementById('showInstructions');
+            const modal = document.getElementById('instructionsModal');
+            const closeButton = document.getElementsByClassName('close-button')[0];
+            
+            instructionsButton.addEventListener('click', () => {
+                modal.style.display = 'flex';
+            });
+            
+            closeButton.addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+
+            window.addEventListener('click', (event) => {
+                if (event.target == modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+        
+        function toggleMetalState() {
+            const toggleButton = document.getElementById('toggleMetal');
+            if (isMetallic) {
+                revertToEnergy();
+                toggleButton.textContent = "Transformar a Metal";
+            } else {
+                convertToMetal();
+                toggleButton.textContent = "Volver a Energía";
+            }
+            isMetallic = !isMetallic;
+        }
+
+        function toggleElectrifyState() {
+            isElectrifiedState = !isElectrifiedState;
+            const topMaterial = topSphere.material;
+            const bottomMaterial = bottomSphere.material;
+            if(isElectrifiedState){
+                isElectrified = true;
+                topMaterial.emissiveIntensity = 2;
+                bottomMaterial.emissiveIntensity = 2;
+                topMaterial.emissive.setHex(0xFFFFFF);
+                bottomMaterial.emissive.setHex(0xFFFFFF);
+                floor.material.emissive.setHex(0xFFFFFF);
+                floor.material.emissiveIntensity = 0.5;
+
+                // Animar los rayos de las bobinas de Tesla
+                teslaCoils.forEach(coil => {
+                    coil.userData.isFiring = true;
+                });
+
+            } else {
+                isElectrified = false;
+                topMaterial.emissiveIntensity = 0;
+                bottomMaterial.emissiveIntensity = 0;
+                topMaterial.emissive.setHex(0x000000);
+                bottomMaterial.emissive.setHex(0x000000);
+                floor.material.emissive.setHex(0x000000);
+                floor.material.emissiveIntensity = 0;
+                
+                // Detener los rayos de las bobinas de Tesla
+                teslaCoils.forEach(coil => {
+                    coil.userData.isFiring = false;
+                });
+            }
+        }
+
+        function toggleRotationState() {
+            const toggleRotationButton = document.getElementById('toggleRotation');
+            isRotating = !isRotating;
+            if (isRotating) {
+                toggleRotationButton.textContent = "Detener Giroscopios";
+                currentRotationSpeed = 0.001; 
+                animationStartTime = Date.now();
+                isGravitationalWaveActive = false;
+                sparkParticles.forEach(p => p.visible = false);
+                wheelRings.forEach(ring => ring.visible = false);
+                crossRings.forEach(ring => ring.visible = false);
+                rays.forEach(ray => ray.visible = false);
+                if (spark) spark.scale.set(1, 1, 1);
+                
+                // Levita solo si está electrificado
+                if (isElectrified) {
+                    isLevitating = true;
+                    isBobbing = false; // Reinicia el efecto de bobbing
+                }
+            } else {
+                toggleRotationButton.textContent = "Girar Giroscopios";
+                currentRotationSpeed = 0;
+                animationStartTime = 0;
+                isGravitationalWaveActive = false;
+                sparkParticles.forEach(p => p.visible = false);
+                crossRings.forEach(ring => ring.visible = false);
+                wheelRings.forEach(ring => ring.visible = false);
+                rays.forEach(ray => ray.visible = false);
+                if (spark) spark.scale.set(1, 1, 1);
+                isLevitating = false;
+                isDescending = true; // Inicia el descenso
+                isBobbing = false; // Detiene el bobbing
+            }
+        }
+        
+        function convertToMetal() {
+            const metalMaterial = new THREE.MeshStandardMaterial({
+                color: 0x808080, // Tono gris más realista
+                metalness: 1.0,
+                roughness: 0.05, // Ligeramente pulido para un look más realista
+                emissive: 0x000000,
+                transparent: false
+            });
+            topSphere.material = metalMaterial;
+            bottomSphere.material = metalMaterial.clone();
+            spark.material = metalMaterial;
+            spark.material.emissive.setHex(0x000000);
+            sparkParticles.forEach(sphere => { 
+                sphere.material = metalMaterial.clone();
+            });
+            wheelRings.forEach(ring => { 
+                ring.material = metalMaterial.clone();
+            });
+            crossRings.forEach(ring => {
+                ring.material = metalMaterial.clone();
+            });
+            rays.forEach(ray => {
+                ray.material = metalMaterial.clone();
+            });
+        }
+        
+        function revertToEnergy() {
+            // Material azul fuerte para la esfera inferior
+            const bottomMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0000FF, 
+                emissive: 0x0000FF,
+                emissiveIntensity: 1.5, 
+                transparent: true,
+                opacity: 0.8,
+                roughness: 0.1,
+                metalness: 0.9,
+                side: THREE.BackSide
+            });
+            // Material negro más oscuro y transparente para la esfera superior
+            const topMaterial = new THREE.MeshStandardMaterial({
+                color: 0x000000, 
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                transparent: true,
+                opacity: 0.3, // Opacidad ajustada para mayor transparencia
+                roughness: 0.1,
+                metalness: 0.9,
+                side: THREE.BackSide
+            });
+            
+            const sparkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, emissive: 0xffffff });
+            const sparkParticleMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffd700, 
+                emissive: 0xffd700,
+                transparent: true, 
+                opacity: 0.5
+            });
+            const ringMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x0000FF,
+                transparent: true,
+                opacity: 0.5,
+                emissive: 0x0000FF,
+                side: THREE.DoubleSide
+            });
+            const crossRingMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.7,
+                emissive: 0xffffff,
+                side: THREE.DoubleSide
+            });
+            const rayMaterial = new THREE.MeshBasicMaterial({
+                color: 0x0000FF,
+                emissive: 0x0000FF,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+
+            topSphere.material = topMaterial;
+            bottomSphere.material = bottomMaterial;
+            spark.material = sparkMaterial;
+            sparkParticles.forEach(sphere => { 
+                sphere.material = sparkParticleMaterial.clone();
+            });
+            wheelRings.forEach(ring => { 
+                ring.material = ringMaterial.clone();
+            });
+            crossRings.forEach(ring => {
+                ring.material = crossRingMaterial.clone();
+            });
+            rays.forEach(ray => {
+                ray.material = rayMaterial.clone();
+            });
+        }
+
+        function createWheels() {
+            const metalMaterial = new THREE.MeshPhongMaterial({
+                color: 0xcccccc,
+                shininess: 100,
+                specular: 0x555555
+            });
+            const reflectionMaterial = new THREE.MeshPhongMaterial({
+                color: 0xcccccc,
+                shininess: 100,
+                specular: 0x555555,
+                transparent: true,
+                opacity: 0.2
+            });
+
+            const positions = [
+                new THREE.Vector3(-2.5, 1.5, 0),
+                new THREE.Vector3(2.5, 1.5, 0),
+                new THREE.Vector3(-2.5, -1.5, 0),
+                new THREE.Vector3(2.5, -1.5, 0)
+            ];
+            
+            for (let i = 0; i < 4; i++) {
+                const wheelGroup = new THREE.Group();
+
+                const wheelGeometry = new THREE.CylinderGeometry(1.2, 1.2, 0.4, 32);
+                const wheelMesh = new THREE.Mesh(wheelGeometry, metalMaterial);
+                wheelGroup.add(wheelMesh);
+                
+                const dotGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+                const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, emissive: 0xff0000 });
+                const redDot = new THREE.Mesh(dotGeometry, dotMaterial);
+                redDot.position.set(0, 0.21, 1.0); // Coloca el punto rojo en la parte superior
+                wheelGroup.add(redDot);
+
+                wheelGroup.rotation.x = -Math.PI / 2;
+
+                wheelGroup.position.copy(positions[i]);
+                containerGroup.add(wheelGroup);
+                wheels.push(wheelGroup);
+            }
+        }
+
+        function createCenterEffects() {
+            const sparkGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+            const sparkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, emissive: 0xffffff });
+            spark = new THREE.Mesh(sparkGeometry, sparkMaterial);
+            containerGroup.add(spark);
+            
+            const sparkParticleGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+            const sparkParticleMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffd700,
+                emissive: 0xffd700,
+                transparent: true,
+                opacity: 0.5
+            });
+            for (let i = 0; i < NUM_SPARK_PARTICLES; i++) {
+                const sphere = new THREE.Mesh(sparkParticleGeometry, sparkParticleMaterial.clone());
+                sphere.userData.delay = Math.random();
+                sphere.userData.waveProgress = 0;
+                sphere.userData.target = new THREE.Vector3(0, 0, 0);
+                sphere.visible = false;
+                sparkParticles.push(sphere);
+                containerGroup.add(sphere);
+            }
+            
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: 0x0000FF,
+                transparent: true,
+                opacity: 0.5,
+                emissive: 0x0000FF,
+                side: THREE.DoubleSide
+            });
+            const ringPositions = [
+                new THREE.Vector3(-2.5, 2.5, 0),
+                new THREE.Vector3(2.5, 2.5, 0),
+                new THREE.Vector3(-2.5, -2.5, 0),
+                new THREE.Vector3(2.5, -2.5, 0)
+            ];
+
+            for (let i = 0; i < 4; i++) {
+                const ringGeometry = new THREE.RingGeometry(0.1, 0.2, 32);
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial.clone());
+                ring.position.copy(ringPositions[i]);
+                ring.userData.progress = 0;
+                ring.userData.delay = i * 0.1; 
+                ring.visible = false;
+                wheelRings.push(ring);
+                containerGroup.add(ring);
+            }
+
+            const lightningLight = new THREE.PointLight(0x0000FF, 10, 5, 2);
+            containerGroup.add(lightningLight);
+            
+            function animateLightning() {
+                const randX = (Math.random() - 0.5) * 2;
+                const randY = (Math.random() - 0.5) * 2;
+                lightningLight.position.set(randX, randY, 0);
+                lightningLight.intensity = Math.random() * 10 + 5;
+                setTimeout(animateLightning, Math.random() * 200 + 100);
+            }
+            animateLightning();
+        }
+
+        // Nueva función para crear los rayos iniciales
+        function createRays() {
+            const rayMaterial = new THREE.MeshBasicMaterial({
+                color: 0x0000FF,
+                emissive: 0x0000FF,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+            const rayGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+            for (let i = 0; i < 4; i++) {
+                const ray = new THREE.Mesh(rayGeometry, rayMaterial);
+                ray.visible = false;
+                rays.push(ray);
+                containerGroup.add(ray);
+            }
+        }
+
+        // Nueva función para animar los rayos
+        function animateRays() {
+            const positions = [
+                new THREE.Vector3(-2.5, 2.5, 0),
+                new THREE.Vector3(2.5, 2.5, 0),
+                new THREE.Vector3(-2.5, -2.5, 0),
+                new THREE.Vector3(2.5, -2.5, 0)
+            ];
+            const target = spark.position;
+
+            rays.forEach((ray, index) => {
+                const startPoint = positions[index];
+                const direction = new THREE.Vector3().subVectors(target, startPoint);
+                const distance = direction.length();
+
+                // Puntos intermedios para el efecto de rayo
+                const numSegments = 10;
+                let currentPoint = new THREE.Vector3().copy(startPoint);
+                let rayPoints = [currentPoint.clone()];
+
+                for (let i = 1; i <= numSegments; i++) {
+                    const segmentProgress = i / numSegments;
+                    const nextPoint = new THREE.Vector3().lerpVectors(startPoint, target, segmentProgress);
+                    
+                    // Añadir un desplazamiento aleatorio para el efecto de rayo
+                    const offset = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2,
+                        (Math.random() - 0.5) * 0.2
+                    );
+                    nextPoint.add(offset);
+                    rayPoints.push(nextPoint);
+                }
+
+                // Generar la geometría del rayo a partir de los puntos
+                const rayPath = new THREE.CatmullRomCurve3(rayPoints);
+                const rayTube = new THREE.TubeGeometry(rayPath, 20, 0.05, 8, false);
+                
+                // Actualizar la geometría del rayo
+                if (ray.geometry) {
+                    ray.geometry.dispose();
+                }
+                ray.geometry = rayTube;
+            });
+        }
+        
+        function createGlassSphere() {
+            glassSphere = new THREE.Group();
+            
+            const topGeometry = new THREE.SphereGeometry(6, 64, 64, 0, Math.PI * 2, 0, Math.PI / 2);
+            const topMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff0000,
+                emissive: 0xff0000,
+                emissiveIntensity: 0,
+                transparent: true,
+                opacity: 0.8,
+                roughness: 0.1,
+                metalness: 0.9,
+                side: THREE.BackSide
+            });
+            topSphere = new THREE.Mesh(topGeometry, topMaterial); 
+            glassSphere.add(topSphere);
+
+            const bottomGeometry = new THREE.SphereGeometry(6, 64, 64, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+            const bottomMaterial = new THREE.MeshStandardMaterial({
+                color: 0x2222ff,
+                emissive: 0x2222ff,
+                emissiveIntensity: 0,
+                transparent: true,
+                opacity: 0.8,
+                roughness: 0.1,
+                metalness: 0.9,
+                side: THREE.BackSide
+            });
+            bottomSphere = new THREE.Mesh(bottomGeometry, bottomMaterial);
+            glassSphere.add(bottomSphere);
+
+            glassSphere.position.y = -3.5;
+        }
+
+        function createFloor() {
+            const floorGeometry = new THREE.BoxGeometry(50, 1, 50); // Convertido a una caja para tener bordes
+            const floorMaterial = new THREE.MeshPhongMaterial({
+                color: 0xffffff, // Cambiado a blanco
+                shininess: 100,
+                specular: 0x333333,
+                reflectivity: 0.5
+            });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.position.y = -10.5; // Ajustado para que la parte superior de la mesa esté en y=0
+            floor.receiveShadow = true;
+            domeGroup.add(floor); // Añadido al grupo del domo
+        }
+
+        function createElectrifiedLine() {
+            const lineGeometry = new THREE.TorusGeometry(6, 0.05, 16, 100);
+            const lineMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0,
+                side: THREE.DoubleSide
+            });
+            electrifiedLine = new THREE.Mesh(lineGeometry, lineMaterial);
+            electrifiedLine.rotation.y = Math.PI / 2; // Gira el anillo para que sea vertical
+            electrifiedLine.visible = false;
+            glassSphere.add(electrifiedLine);
+        }
+
+        function createChairs() {
+            const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.1, roughness: 0.8 });
+            const seatGeometry = new THREE.BoxGeometry(1.5, 0.2, 1.5);
+            const legGeometry = new THREE.BoxGeometry(0.1, 1.5, 0.1);
+
+            // Sillas en las esquinas por dentro del cuadro negro
+            const innerChairPositions = [
+                new THREE.Vector3(-15, -9.6, 15),
+                new THREE.Vector3(15, -9.6, 15),
+                new THREE.Vector3(15, -9.6, -15),
+                new THREE.Vector3(-15, -9.6, -15)
+            ];
+            
+            innerChairPositions.forEach(pos => {
+                const chairGroup = new THREE.Group();
+                chairGroup.position.copy(pos);
+
+                const seat = new THREE.Mesh(seatGeometry, chairMaterial);
+                seat.position.y = 0.75;
+                chairGroup.add(seat);
+
+                const leg1 = new THREE.Mesh(legGeometry, chairMaterial);
+                leg1.position.set(-0.6, 0, -0.6);
+                chairGroup.add(leg1);
+
+                const leg2 = new THREE.Mesh(legGeometry, chairMaterial);
+                leg2.position.set(0.6, 0, -0.6);
+                chairGroup.add(leg2);
+
+                const leg3 = new THREE.Mesh(legGeometry, chairMaterial);
+                leg3.position.set(-0.6, 0, 0.6);
+                chairGroup.add(leg3);
+
+                const leg4 = new THREE.Mesh(legGeometry, chairMaterial);
+                leg4.position.set(0.6, 0, 0.6);
+                chairGroup.add(leg4);
+                
+                domeGroup.add(chairGroup); // Añadido al grupo del domo
+            });
+        }
+        
+        function createTeslaCoils() {
+            const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.5 });
+            const coilMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.9, roughness: 0.2 });
+            
+            const positions = [
+                new THREE.Vector3(20, -9.5, 20),
+                new THREE.Vector3(-20, -9.5, 20),
+                new THREE.Vector3(-20, -9.5, -20),
+                new THREE.Vector3(20, -9.5, -20)
+            ];
+            
+            positions.forEach(pos => {
+                const coilGroup = new THREE.Group();
+                
+                // Base
+                const baseGeometry = new THREE.CylinderGeometry(2, 2, 1, 32);
+                const baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
+                baseMesh.position.y = 0.5;
+                coilGroup.add(baseMesh);
+                
+                // Bobina principal
+                const coilGeometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                const coilMesh = new THREE.Mesh(coilGeometry, coilMaterial);
+                coilMesh.position.y = 3;
+                coilGroup.add(coilMesh);
+                
+                // Top sphere
+                const topSphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+                const topSphereMesh = new THREE.Mesh(topSphereGeometry, coilMaterial);
+                topSphereMesh.position.y = 5;
+                coilGroup.add(topSphereMesh);
+                
+                coilGroup.position.copy(pos);
+                domeGroup.add(coilGroup); // Añadido al grupo del domo
+                
+                // Rayo inicial
+                const rayGeometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0,5,0), new THREE.Vector3(0,6,0)]), 10, 0.1, 8, false);
+                const rayMaterial = new THREE.MeshBasicMaterial({ color: 0x00BFFF, emissive: 0x00BFFF, transparent: true, opacity: 0 });
+                const rayMesh = new THREE.Mesh(rayGeometry, rayMaterial);
+                coilGroup.add(rayMesh);
+                
+                coilGroup.userData.ray = rayMesh;
+                coilGroup.userData.isFiring = false;
+                
+                teslaCoils.push(coilGroup);
+            });
+        }
+
+        function createFuturisticCity() {
+            cityGroup = new THREE.Group();
+            const buildingMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                metalness: 0.8,
+                roughness: 0.5,
+                emissive: 0x000000
+            });
+            const windowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
+                emissive: 0x00ffff,
+                emissiveIntensity: 1.5
+            });
+
+            const buildingCount = 200;
+            const cityRadius = 150;
+
+            for (let i = 0; i < buildingCount; i++) {
+                const height = Math.random() * 50 + 20;
+                const buildingGeometry = new THREE.BoxGeometry(5, height, 5);
+                const buildingMesh = new THREE.Mesh(buildingGeometry, buildingMaterial.clone());
+
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * 50 + 100;
+                buildingMesh.position.x = Math.cos(angle) * radius;
+                buildingMesh.position.z = Math.sin(angle) * radius;
+                buildingMesh.position.y = height / 2 - 10;
+                
+                // Add windows (emissive effect)
+                if (Math.random() > 0.5) {
+                    const windowCount = Math.floor(Math.random() * 5) + 2;
+                    for (let j = 0; j < windowCount; j++) {
+                        const windowGeometry = new THREE.BoxGeometry(1, 2, 0.1);
+                        const windowMesh = new THREE.Mesh(windowGeometry, windowMaterial.clone());
+                        windowMesh.position.x = (Math.random() - 0.5) * 3;
+                        windowMesh.position.y = (Math.random() - 0.5) * height;
+                        windowMesh.position.z = 2.51;
+                        buildingMesh.add(windowMesh);
+                    }
+                }
+
+                cityGroup.add(buildingMesh);
+            }
+            domeGroup.add(cityGroup); // Añadido al grupo del domo
+        }
+
+        function createMiniaturePeople() {
+            const peopleMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 }); // Color gris oscuro
+            const numPeople = 50;
+            const cityRadius = 150;
+            const exclusionRadius = 25; // Para no poner personas en el área central
+
+            for (let i = 0; i < numPeople; i++) {
+                const personGroup = new THREE.Group();
+
+                // Cabeza
+                const headGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+                const head = new THREE.Mesh(headGeometry, peopleMaterial);
+                head.position.y = 0.8;
+
+                // Cuerpo
+                const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8);
+                const body = new THREE.Mesh(bodyGeometry, peopleMaterial);
+                body.position.y = 0.75;
+
+                personGroup.add(head);
+                personGroup.add(body);
+                
+                // Posición aleatoria en el plano XZ
+                let positionX, positionZ;
+                do {
+                    positionX = (Math.random() - 0.5) * cityRadius * 2;
+                    positionZ = (Math.random() - 0.5) * cityRadius * 2;
+                } while (new THREE.Vector2(positionX, positionZ).length() < exclusionRadius);
+
+                personGroup.position.set(positionX, -9.5, positionZ);
+                domeGroup.add(personGroup); // Añadido al grupo del domo
+                miniaturePeople.push(personGroup);
+            }
+        }
+        
+        // --- NUEVO CÓDIGO: Función para crear el domo ---
+        function createGlassDome() {
+            const domeGeometry = new THREE.SphereGeometry(175, 64, 64);
+            const domeMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.2,
+                metalness: 0,
+                roughness: 0,
+                ior: 1.5,
+                transmission: 1,
+                side: THREE.BackSide,
+                reflectivity: 0.5,
+            });
+            const dome = new THREE.Mesh(domeGeometry, domeMaterial);
+            domeGroup.add(dome);
+        }
+        // --- FIN DEL NUEVO CÓDIGO ---
+
+        function animateTeslaCoils() {
+            teslaCoils.forEach(coil => {
+                if (coil.userData.isFiring) {
+                    const rayMesh = coil.userData.ray;
+                    
+                    // Puntos del rayo
+                    const startPoint = new THREE.Vector3(0, 5, 0);
+                    const endPoint = glassSphere.position.clone().sub(coil.position);
+                    
+                    // Puntos intermedios para la curvatura del rayo
+                    const midPoint1 = new THREE.Vector3().lerpVectors(startPoint, endPoint, 0.3);
+                    midPoint1.x += (Math.random() - 0.5) * 5;
+                    midPoint1.y += (Math.random() - 0.5) * 5;
+                    midPoint1.z += (Math.random() - 0.5) * 5;
+                    
+                    const midPoint2 = new THREE.Vector3().lerpVectors(startPoint, endPoint, 0.7);
+                    midPoint2.x += (Math.random() - 0.5) * 5;
+                    midPoint2.y += (Math.random() - 0.5) * 5;
+                    midPoint2.z += (Math.random() - 0.5) * 5;
+                    
+                    const points = [startPoint, midPoint1, midPoint2, endPoint];
+                    
+                    // Crear nueva geometría para el rayo
+                    const newRayGeometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 20, 0.1, 8, false);
+                    rayMesh.geometry.dispose();
+                    rayMesh.geometry = newRayGeometry;
+                    
+                    // Animación de opacidad
+                    rayMesh.material.opacity = Math.random() * 0.8 + 0.2;
+                } else {
+                    // Ocultar el rayo cuando no está activo
+                    coil.userData.ray.material.opacity = 0;
+                }
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const elapsedTime = (Date.now() - animationStartTime) / 1000;
+            const now = Date.now();
+
+            if (isRotating) {
+                if (elapsedTime < 1) {
+                    currentRotationSpeed = 0.01;
+                } else if (elapsedTime < 3) {
+                    currentRotationSpeed = 0.03;
+                } else {
+                    currentRotationSpeed = 0.08;
+                }
+                
+                wheels[0].rotation.y += currentRotationSpeed; // Rueda superior izquierda
+                wheels[1].rotation.y -= currentRotationSpeed; // Rueda superior derecha
+                wheels[2].rotation.y += currentRotationSpeed; // Rueda inferior izquierda
+                wheels[3].rotation.y -= currentRotationSpeed; // Rueda inferior derecha
+                
+            } else {
+                currentRotationSpeed = 0;
+                wheels.forEach(wheel => wheel.rotation.y = 0);
+            }
+
+            // Activar la animación de ondas gravitacionales y rayos
+            if (isRotating && elapsedTime >= 4 && !isGravitationalWaveActive) {
+                isGravitationalWaveActive = true;
+                waveStartTime = now;
+                wheelRings.forEach(ring => ring.visible = true);
+                
+                sparkParticles.forEach(p => {
+                    p.visible = true;
+                    p.position.copy(spark.position);
+                    p.userData.target.set(
+                        (Math.random() - 0.5) * 12,
+                        (Math.random() - 0.5) * 12,
+                        (Math.random() - 0.5) * 12
+                    ).normalize().multiplyScalar(6);
+                });
+                rays.forEach(ray => ray.visible = true);
+                
+                // Levita solo si está electrificado
+                if (isElectrified) {
+                    isLevitating = true;
+                    isBobbing = false; // Reinicia el efecto de bobbing
+                }
+            }
+            
+            if (isLevitating) {
+                if (glassSphere.position.y < LEVITATION_HEIGHT) {
+                    glassSphere.position.y += LEVITATION_SPEED_ASCEND;
+                    floor.material.emissiveIntensity = THREE.MathUtils.mapLinear(glassSphere.position.y, INITIAL_HEIGHT, LEVITATION_HEIGHT, 0, 0.8);
+                } else {
+                    glassSphere.position.y = LEVITATION_HEIGHT;
+                    isLevitating = false; // Detiene la levitación una vez que alcanza la altura deseada
+                    isBobbing = true; // Inicia el efecto de bobbing
+                }
+            }
+
+            // Efecto de levitación 'sube y baja'
+            if (isBobbing) {
+                const bobbingSpeed = 0.002;
+                const bobbingHeight = 0.2; // Altura de bobbing en cm
+                glassSphere.position.y = LEVITATION_HEIGHT + Math.sin(now * bobbingSpeed) * bobbingHeight;
+            }
+
+            // Descender la esfera
+            if (isDescending) {
+                if (glassSphere.position.y > INITIAL_HEIGHT) {
+                    glassSphere.position.y -= LEVITATION_SPEED_DESCEND;
+                    // Reducir la velocidad de rotación mientras baja
+                    let descentProgress = 1 - (glassSphere.position.y - INITIAL_HEIGHT) / (LEVITATION_HEIGHT - INITIAL_HEIGHT);
+                    wheels.forEach(wheel => {
+                        wheel.rotation.y = wheel.rotation.y * descentProgress;
+                    });
+                    floor.material.emissiveIntensity = THREE.MathUtils.mapLinear(glassSphere.position.y, INITIAL_HEIGHT, LEVITATION_HEIGHT, 0, 0.8);
+                } else {
+                    glassSphere.position.y = INITIAL_HEIGHT;
+                    isDescending = false;
+                    wheels.forEach(wheel => wheel.rotation.y = 0);
+                    floor.material.emissiveIntensity = 0;
+                }
+            }
+
+
+            if (isGravitationalWaveActive) {
+                const waveElapsedTime = (now - waveStartTime) / 1000;
+                
+                // Animación de los anillos que salen de las ruedas
+                const ringSpeed = 1.0;
+                wheelRings.forEach(ring => {
+                    ring.userData.progress = (waveElapsedTime * ringSpeed + ring.userData.delay) % 1;
+                    
+                    const origin = wheels[wheelRings.indexOf(ring)].position;
+                    const target = spark.position;
+                    
+                    ring.position.lerpVectors(origin, target, ring.userData.progress);
+                    
+                    const currentScale = THREE.MathUtils.mapLinear(ring.userData.progress, 0, 1, 1, 0.1);
+                    ring.scale.set(currentScale, currentScale, currentScale);
+
+                    const opacity = THREE.MathUtils.mapLinear(ring.userData.progress, 0, 1, 0.5, 0);
+                    ring.material.opacity = opacity;
+
+                    if (ring.userData.progress > 0.99) {
+                        ring.userData.delay = Math.random() * 0.5;
+                        ring.visible = false;
+                    }
+                });
+
+                // Animación de los puntos que salen de la chispa central
+                const sparkWaveSpeed = 0.5;
+                sparkParticles.forEach((sphere) => {
+                    const progress = (waveElapsedTime * sparkWaveSpeed + sphere.userData.delay) % 1;
+                    const startPos = spark.position;
+                    const targetPos = sphere.userData.target;
+
+                    sphere.position.lerpVectors(startPos, targetPos, progress);
+
+                    const size = THREE.MathUtils.mapLinear(progress, 0, 1, 0.05, 0.8);
+                    sphere.scale.set(size, size, size);
+                    sphere.material.opacity = 1 - progress;
+
+                    if (progress > 0.99) {
+                        sphere.userData.delay = Math.random();
+                        sphere.userData.target.set(
+                            (Math.random() - 0.5) * 12,
+                            (Math.random() - 0.5) * 12,
+                            (Math.random() - 0.5) * 12
+                        ).normalize().multiplyScalar(6);
+                    }
+                });
+
+                // Animación de los anillos en forma de cruz
+                if (now - lastCrossRingSpawnTime > CROSS_RING_SPAWN_INTERVAL) {
+                    const crossRingMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.7,
+                        emissive: 0xffffff,
+                        side: THREE.DoubleSide
+                    });
+                    const crossRingGeometry = new THREE.RingGeometry(0.5, 0.55, 64);
+                    
+                    const newHorizontalRing = new THREE.Mesh(crossRingGeometry, crossRingMaterial.clone());
+                    newHorizontalRing.rotation.x = Math.PI / 2;
+                    newHorizontalRing.userData.progress = 0;
+                    crossRings.push(newHorizontalRing);
+                    containerGroup.add(newHorizontalRing);
+                    
+                    const newVerticalRing = new THREE.Mesh(crossRingGeometry, crossRingMaterial.clone());
+                    newVerticalRing.rotation.y = Math.PI / 2;
+                    newVerticalRing.userData.progress = 0;
+                    crossRings.push(newVerticalRing);
+                    containerGroup.add(newVerticalRing);
+
+                    lastCrossRingSpawnTime = now;
+                }
+
+                const crossRingSpeed = 0.2;
+                crossRings.forEach(ring => {
+                    ring.userData.progress += crossRingSpeed * (1/60);
+                    const progress = ring.userData.progress;
+                    
+                    const scale = THREE.MathUtils.mapLinear(progress, 0, 1, 1, 6);
+                    ring.scale.set(scale, scale, scale);
+
+                    const opacity = THREE.MathUtils.mapLinear(progress, 0, 1, 0.7, 0);
+                    ring.material.opacity = opacity;
+
+                    if (progress > 1) {
+                        containerGroup.remove(ring);
+                        const index = crossRings.indexOf(ring);
+                        if (index > -1) {
+                            crossRings.splice(index, 1);
+                        }
+                    }
+                });
+
+                // Animación de los nuevos rayos
+                animateRays();
+            }
+
+            // Animación de la línea electrificada
+            if (isElectrified) {
+                const pulse = Math.sin(Date.now() * 0.005) * 0.5 + 0.5; // Pulso entre 0 y 1
+                electrifiedLine.material.opacity = 0.5 + pulse * 0.5; // Opacidad entre 0.5 y 1.0
+                electrifiedLine.scale.set(1 + pulse * 0.05, 1 + pulse * 0.05, 1 + pulse * 0.05);
+            }
+            
+            // Animación de la señal alienígena
+            if (alienSignalActive) {
+                const time = Date.now() * 0.002;
+                const scaleY = Math.sin(time) * 0.2 + 0.8;
+                const scaleX = Math.sin(time) * 0.1 + 0.9;
+                // alienSignal.scale.set(scaleX, scaleY, scaleX); // Código comentado para eliminar la señal
+                // alienSignal.position.y = 6 + Math.cos(time) * 0.5; // Código comentado para eliminar la señal
+                // alienSignal.material.opacity = Math.sin(time) * 0.3 + 0.7; // Código comentado para eliminar la señal
+            }
+
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
+
